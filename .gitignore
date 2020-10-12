@@ -1,0 +1,5 @@
+checkpoints/1/*
+checkpoints/0/*
+/results/*
+/__pycache__/
+/.idea/
