@@ -29,9 +29,9 @@ class mask_gvae(object):
         self.logging = logging
         self.input_dim = num_features
         self.inputs = placeholders['features']
-        self.adj = placeholders['adj']
+        self.adj = placeholders['adj']   ## this is normalized noised graph with D-1AD-1
         self.dropout = placeholders['dropout']
-        self.adj_ori = placeholders['adj_orig']
+        self.adj_ori = placeholders['adj_orig']  ## this is noise graph with 0-1
         self.features_nonzero = features_nonzero
         self.batch_size = FLAGS.batch_size
         self.latent_dim = FLAGS.latent_dim

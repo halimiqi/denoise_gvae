@@ -17,8 +17,8 @@ np.random.seed(seed)
 tf.set_random_seed(seed)
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 from preprocessing import preprocess_graph, construct_feed_dict, sparse_to_tuple, mask_test_edges,get_target_nodes_and_comm_labels, construct_feed_dict_trained
-from mask_gvae import mask_gvae
-from optimizer import Optimizer
+from gvae_ablation import mask_gvae
+from optimizer_ablation import Optimizer
 from gcn.utils import load_data
 from tqdm import tqdm
 from gcn import train_test as GCN
@@ -53,7 +53,7 @@ flags.DEFINE_integer("k_features", 300, "The nodes to flip features for the mode
 flags.DEFINE_integer("k_features_noise", 300, "The nodes to add noise and flip features")
 flags.DEFINE_integer("k_features_dim", 1, "The nodes to add noise and flip features")
 flags.DEFINE_float('ratio_loss_fea', 1, 'the ratio of generate loss for features')
-flags.DEFINE_boolean("train", False, "Training or Test")
+flags.DEFINE_boolean("train", True, "Training or Test")
 ###############################
 if_train = FLAGS.train
 cv_index = int(if_train)
@@ -226,7 +226,7 @@ def train():
     print(np.mean(psnr_list))
     print("The WL is :")
     print(np.mean(wls_list))
-    return psnr,wls
+    return np.mean(psnr_list),np.mean(wls_list)
 
 def train_one_graph(adj,adj_orig, features_csr ,num_node ,model, opt,placeholders, sess,new_learning_rate,feed_dict, epoch, graph_index):
     adj_orig = adj_orig - sp.dia_matrix((adj_orig.diagonal()[np.newaxis, :], [0]),
@@ -235,10 +235,10 @@ def train_one_graph(adj,adj_orig, features_csr ,num_node ,model, opt,placeholder
     adj_new  = adj
     row_sum = adj_new.sum(1).A1
     row_sum = sp.diags(row_sum)
-    L = row_sum - adj_new
-    ori_Lap = features_csr.transpose().dot(L).dot(features_csr)
-    ori_Lap_trace = ori_Lap.diagonal().sum()
-    ori_Lap_log = np.log(ori_Lap_trace)
+    # L = row_sum - adj_new
+    # ori_Lap = features_csr.transpose().dot(L).dot(features_csr)
+    # ori_Lap_trace = ori_Lap.diagonal().sum()
+    # ori_Lap_log = np.log(ori_Lap_trace)
     features = sparse_to_tuple(features_csr.tocoo())
     adj_norm, adj_norm_sparse = preprocess_graph(adj_new)
     adj_norm_sparse_csr = adj_norm_sparse.tocsr()
@@ -270,7 +270,7 @@ def train_one_graph(adj,adj_orig, features_csr ,num_node ,model, opt,placeholder
     t = time.time()
     ########
     # last_reg = current_reg
-    if epoch > int(FLAGS.epochs / 2):  ## here we can contorl the manner of new model
+    if epoch >= 0:  ## here we can contorl the manner of new model
         _= sess.run([opt.G_min_op], feed_dict=feed_dict,options=run_options)
 
     else:
@@ -282,14 +282,10 @@ def train_one_graph(adj,adj_orig, features_csr ,num_node ,model, opt,placeholder
             feed_dict.update({placeholders["noised_num"]: len(noised_indexes)/2})
     ##
     if epoch % 1 == 0 and graph_index == 0:
-        if epoch > int(FLAGS.epochs / 2):
-            print("This is the generation part")
-        else:
-            print("This is the cluster mask part")
         print("Epoch:", '%04d' % (epoch + 1),
               "time=", "{:.5f}".format(time.time() - t))
-        G_loss,D_loss, new_learn_rate_value = sess.run([opt.G_comm_loss,opt.D_loss,new_learning_rate],feed_dict=feed_dict,  options = run_options)
-        print("Step: %d,G: loss=%.7f ,L_u: loss= %.7f, LR=%.7f" % (epoch, G_loss,D_loss + 1, new_learn_rate_value))
+        G_loss, new_learn_rate_value = sess.run([opt.G_loss_ablation,new_learning_rate],feed_dict=feed_dict,  options = run_options)
+        print("Step: %d,G: loss=%.7f , LR=%.7f" % (epoch, G_loss, new_learn_rate_value))
         ##########################################
     return
 
@@ -300,10 +296,10 @@ def test_one_graph(adj , adj_orig, features_csr, num_node ,model,placeholders, s
     adj_new = adj
     row_sum = adj_new.sum(1).A1
     row_sum = sp.diags(row_sum)
-    L = row_sum - adj_new
-    ori_Lap = features_csr.transpose().dot(L).dot(features_csr)
-    ori_Lap_trace = ori_Lap.diagonal().sum()
-    ori_Lap_log = np.log(ori_Lap_trace)
+    # L = row_sum - adj_new
+    # ori_Lap = features_csr.transpose().dot(L).dot(features_csr)
+    # ori_Lap_trace = ori_Lap.diagonal().sum()
+    # ori_Lap_log = np.log(ori_Lap_trace)
     features = sparse_to_tuple(features_csr.tocoo())
     adj_label = adj_new + sp.eye(adj.shape[0])
     adj_label_sparse = adj_label
@@ -334,7 +330,7 @@ FLAGS = flags.FLAGS
 if __name__ == "__main__":
     current_time = datetime.datetime.now().strftime("%y%m%d%H%M%S")
     with open("results/results_%d_%s.txt"%(FLAGS.k, current_time), 'w+') as f_out:
-        f_out.write("the_original_graph" +" "+ "denoised_graph" + ' ' + 'PSNR'+ ' ' + 'WL' + "\n")
+        f_out.write('PSNR'+ ' ' + 'WL' + "\n")
         for i in range(1):
-            psnr,wls,  testacc, testaccnew_adjfea = train()
-            f_out.write(str(testacc)+" "+str(testaccnew_adjfea)+ ' '+str(psnr)+ ' '+str(wls) + "\n")
+            psnr,wls, = train()
+            f_out.write(str(psnr)+ ' '+str(wls) + "\n")
