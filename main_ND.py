@@ -21,6 +21,7 @@ from gvae_ablation import mask_gvae
 from optimizer_ablation import Optimizer
 from gcn.utils import load_data
 from tqdm import tqdm
+from ND import ND
 from gcn import train_test as GCN
 from graph.dataset import load
 # Settings
@@ -138,86 +139,13 @@ def train():
     adj_label = sparse_to_tuple(adj_label)
     num_nodes = adj.shape[0]
 
-
-    ############
-    global_steps = tf.get_variable('global_step', trainable=False, initializer=0)
-    new_learning_rate = tf.train.exponential_decay(FLAGS.learn_rate_init, global_step=global_steps, decay_steps=100,
-                                                   decay_rate=0.95)
-    new_learn_rate_value = FLAGS.learn_rate_init
-    ## set the placeholders
-    placeholders = {
-        'features': tf.sparse_placeholder(tf.float32, name= "ph_features"),
-        'adj': tf.sparse_placeholder(tf.float32,name= "ph_adj"),
-        'adj_orig': tf.sparse_placeholder(tf.float32, name = "ph_orig"),
-        'dropout': tf.placeholder_with_default(0.3, shape=(), name = "ph_dropout"),
-        'clean_mask': tf.placeholder(tf.int32),
-        'noised_mask': tf.placeholder(tf.int32),
-        'noised_num':tf.placeholder(tf.int32),
-        'node_mask':tf.placeholder(tf.float32)
-    }
-    # build models
-    model = None
-    adj_clean = adj_orig.tocoo()
-    adj_clean_tensor = tf.SparseTensor(indices =np.stack([adj_clean.row,adj_clean.col], axis = -1),
-                                       values = adj_clean.data, dense_shape = adj_clean.shape )
-    if model_str == "mask_gvae":
-        model = mask_gvae(placeholders, num_features, num_nodes, features_nonzero,
-                       new_learning_rate,
-                       adj_clean = adj_clean_tensor, k = int(adj.sum()*noise_ratio))
-        model.build_model()
-    pos_weight = float(adj.shape[0] * adj.shape[0] - adj.sum()) / adj.sum()
-    norm = adj.shape[0] * adj.shape[0] / float((adj.shape[0] * adj.shape[0] - adj.sum()) * 2)
-    opt = 0
-    # Optimizer
-    with tf.name_scope('optimizer'):
-        if model_str == 'mask_gvae':
-            opt = Optimizer(preds=tf.reshape(model.x_tilde, [-1]),
-                                  labels=tf.reshape(
-                                      tf.sparse_tensor_to_dense(placeholders['adj_orig'], validate_indices=False),
-                                      [-1]),
-                                  model=model,
-                                  num_nodes=num_nodes,
-                                  global_step=global_steps,
-                                  new_learning_rate = new_learning_rate,
-                                  placeholders = placeholders
-                                  )
-    # init the sess
-    sess = tf.Session()
-    sess.run(tf.global_variables_initializer())
-    ### initial clean and noised_mask
-    clean_mask = np.array([1,2,3,4,5])
-    noised_mask = np.array([6,7,8,9,10])
-    noised_num = noised_mask.shape[0] / 2
-    # ##################################
-    feed_dict = construct_feed_dict(adj_norm, adj_label, features,clean_mask, noised_mask,noised_num,  placeholders)
-    node_mask = np.ones([num_nodes, n_class])
-    node_mask[train_num_nodes_all[0]:, :] = 0
-    feed_dict.update({placeholders['node_mask']:node_mask})
-    feed_dict.update({placeholders['dropout']: FLAGS.dropout})
-    # #####################################################
-    if if_train:
-        for epoch in range(FLAGS.epochs):
-            for i in tqdm(range(len(train_feature_input))):
-                train_one_graph(train_adj_list[i], train_adj_orig_list[i], train_feature_input[i], train_num_nodes_all[0], model, opt, placeholders,sess,new_learning_rate,feed_dict, epoch, i)
-        saver = tf.train.Saver()
-        saver.save(sess, "./checkpoints/{}/model.ckpt".format(cv_index))
-        print("Optimization Finished!")
-        psnr_list = []
-        wls_list = []
-        for i in range(len(test_feature_input)):
-            psnr, wls = test_one_graph(test_adj_list[i], test_adj_orig_list[i],test_feature_input[i],train_num_nodes_all[i], model, placeholders, sess, feed_dict)
-            psnr_list.append(psnr)
-            wls_list.append(wls)
+    psnr_list = []
+    wls_list = []
+    for i in range(len(test_feature_input)):
+        psnr, wls = test_one_graph_ND(test_adj_list[i], test_adj_orig_list[i],test_feature_input[i],train_num_nodes_all[i])
+        psnr_list.append(psnr)
+        wls_list.append(wls)
     # new_adj = get_new_adj(feed_dict,sess, model)
-    else:
-      saver = tf.train.Saver()
-      saver.restore(sess, "./checkpoints/{}/model.ckpt".format(cv_index))
-      psnr_list = []
-      wls_list = []
-      for i in range(len(test_feature_input)):
-          psnr, wls = test_one_graph(test_adj_list[i],test_adj_orig_list[i], test_feature_input[i], train_num_nodes_all[i], model, placeholders, sess, feed_dict)
-          psnr_list.append(psnr)
-          wls_list.append(wls)
     ##################################
     ################## the PSRN and WL #########################
     print("#"*15)
@@ -265,7 +193,7 @@ def train_one_graph(adj,adj_orig, features_csr ,num_node ,model, opt,placeholder
     node_mask[num_node:, :] = 0
     feed_dict.update({placeholders['node_mask']: node_mask})
     feed_dict.update({placeholders['dropout']: FLAGS.dropout})
-    model.k = int(adj_new.sum()*noise_ratio / 2)
+    model.k = adj_new.sum()*noise_ratio
     #####################################################
     t = time.time()
     ########
@@ -289,7 +217,7 @@ def train_one_graph(adj,adj_orig, features_csr ,num_node ,model, opt,placeholder
         ##########################################
     return
 
-def test_one_graph(adj , adj_orig, features_csr, num_node ,model,placeholders, sess, feed_dict):
+def test_one_graph(adj , adj_orig, features_csr, num_node):
     adj_orig = adj_orig - sp.dia_matrix((adj_orig.diagonal()[np.newaxis, :], [0]),
                                         shape=adj_orig.shape)  # delete self loop
     adj_orig.eliminate_zeros()
@@ -307,22 +235,48 @@ def test_one_graph(adj , adj_orig, features_csr, num_node ,model,placeholders, s
     adj_clean = adj_orig.tocsr()
 
     adj_norm, adj_norm_sparse = preprocess_graph(adj_new)
-    feed_dict.update({placeholders["adj"]: adj_norm})
-    feed_dict.update({placeholders["adj_orig"]: adj_label})
-    feed_dict.update({placeholders["features"]: features})
-    feed_dict.update({placeholders['dropout']: FLAGS.dropout})
-    model.k = int(adj_new.sum() * noise_ratio / 2)
     # feed_dict = construct_feed_dict(adj_norm, adj_label, features, clean_mask, noised_mask, noised_num, placeholders)
     x_tilde = sess.run(model.realD_tilde, feed_dict=feed_dict, options=run_options)
     noised_indexes, clean_indexes = get_noised_indexes(x_tilde, adj_new, num_node)
-    feed_dict.update({placeholders["noised_mask"]: noised_indexes})
-    feed_dict.update({placeholders["clean_mask"]: clean_indexes})
-    feed_dict.update({placeholders["noised_num"]: len(noised_indexes) / 2})
+    model.k = adj_new.sum() * noise_ratio
     new_adj = get_new_adj(feed_dict, sess, model)
     new_adj_sparse = sp.csr_matrix(new_adj)
     psnr = PSNR(adj_clean[:num_node, :num_node], new_adj_sparse[:num_node, :num_node])
     y_label = y_train + y_val + y_test
     wls = WL_no_label(adj_clean[:num_node, :num_node], new_adj_sparse[:num_node, :num_node])
+    return psnr, wls
+
+def test_one_graph_ND(adj , adj_orig, features_csr, num_node):
+    adj_orig = adj_orig - sp.dia_matrix((adj_orig.diagonal()[np.newaxis, :], [0]),
+                                        shape=adj_orig.shape)  # delete self loop
+    adj_orig.eliminate_zeros()
+    adj_new = adj
+    row_sum = adj_new.sum(1).A1
+    row_sum = sp.diags(row_sum)
+    ##ND algorithm
+    x_tilde = ND(adj.todense())
+    adj_dense = adj_new.todense()
+    x_tilde[adj_dense == 0] = 1
+    # x_tilde[np.diag(np.ones(adj_dense.shape[0])) == 1] == 1
+    mask = np.tril(np.ones(adj_dense.shape))
+    x_tilde[mask == 1] = 1
+    x_tilde[num_node:, num_node:] = 1
+    x_tilde_flat = x_tilde.flatten()
+    x_tilde_flat = np.squeeze(np.array(x_tilde_flat))
+    idx = np.argsort(x_tilde_flat)
+    k = int(adj_new.sum() * noise_ratio / 2)
+    selected_idx = np.squeeze(idx[:k])
+    row = selected_idx // adj_dense.shape[0]
+    col = selected_idx % adj_dense.shape[1]
+    adj_dense[row, col] = 1
+    adj_dense[col, row] = 1
+    new_adj = sp.csr_matrix(adj_dense)
+    # adj_label_sparse = adj_label
+    # adj_label = sparse_to_tuple(adj_label)
+    adj_clean = adj_orig.tocsr()
+    psnr = PSNR(adj_clean[:num_node, :num_node], new_adj[:num_node, :num_node])
+    y_label = y_train + y_val + y_test
+    wls = WL_no_label(adj_clean[:num_node, :num_node], new_adj[:num_node, :num_node])
     return psnr, wls
 
 

@@ -26,9 +26,12 @@ from graph.dataset import load
 # Settings
 flags = tf.app.flags
 FLAGS = flags.FLAGS
+### BN  maybe cause the error
+
+###
 ##### this is for gae part
 flags.DEFINE_integer('n_clusters', 6, 'Number of epochs to train.')    # this one can be calculated according to labels
-flags.DEFINE_integer('epochs', 1, 'Number of epochs to train.')
+flags.DEFINE_integer('epochs', 5, 'Number of epochs to train.')
 flags.DEFINE_integer('hidden1', 32, 'Number of units in hidden layer 1.')
 flags.DEFINE_integer('hidden2', 16, 'Number of units in hidden layer 2.')
 flags.DEFINE_float('weight_decay', 0., 'Weight for L2 loss on embedding matrix.')
@@ -39,21 +42,23 @@ flags.DEFINE_float('gcn_weight_decay', 5e-4, 'Weight for L2 loss on embedding ma
 flags.DEFINE_integer('early_stopping', 10, 'Tolerance for: early stopping (# of epochs).')
 ###########################
 flags.DEFINE_float('dropout', 0.3, 'Dropout rate (1 - keep probability).')
-flags.DEFINE_float('mincut_r', 0.3, 'The r parameters for the cutmin loss orth loss')
+flags.DEFINE_float('mincut_r', 0.3, 'The r parameters for the cutmin loss orth loss')   # ORTH LOSS
 flags.DEFINE_string('model', 'mask_gvae', 'Model string.')
-flags.DEFINE_string('dataset', 'citeseer', 'Dataset string.')
+flags.DEFINE_string('dataset', 'IMDB-BINARY', 'Dataset string.')
+flags.DEFINE_float("noise_ratio" , 0.1, "the init of learn rate")
 flags.DEFINE_integer('features', 1, 'Whether to use features (1) or not (0).')
 from tensorflow.python.client import device_lib
 flags.DEFINE_integer("batch_size" , 64, "batch size")
 flags.DEFINE_integer("latent_dim" , 16, "the dim of latent code")
-flags.DEFINE_float("learn_rate_init" , 1e-02, "the init of learn rate")
+flags.DEFINE_float("learn_rate_init" , 1e-03, "the init of learn rate")
+flags.DEFINE_float("learn_rate_init_gen" , 1e-02, "the init of learn rate")
 flags.DEFINE_integer("k", 20, "The edges to delete for the model")
 flags.DEFINE_integer("k_noise", 20, "The k edges to add noise")
 flags.DEFINE_integer("k_features", 300, "The nodes to flip features for the model")
 flags.DEFINE_integer("k_features_noise", 300, "The nodes to add noise and flip features")
 flags.DEFINE_integer("k_features_dim", 1, "The nodes to add noise and flip features")
 flags.DEFINE_float('ratio_loss_fea', 1, 'the ratio of generate loss for features')
-flags.DEFINE_boolean("train", False, "Training or Test")
+flags.DEFINE_boolean("train", True, "Training or Test")
 ###############################
 if_train = FLAGS.train
 cv_index = int(if_train)
@@ -64,13 +69,14 @@ model_str = FLAGS.model
 dataset_str = FLAGS.dataset
 noise_ratio = 0.1
 ## Load datasets
-dataset_index = "IMDB-BINARY"
+# dataset_index = "IMDB-BINARY"
+dataset_index = FLAGS.dataset
 train_structure_input, train_feature_input, train_y, \
     train_num_nodes_all, test_structure_input, test_feature_input, \
     test_y, test_num_nodes_all = load_data_subgraphs(dataset_index, train_ratio=0.9)
 ##
 # Load data
-adj, features, y_train, y_val, y_test, train_mask, val_mask, test_mask = load_data(FLAGS.dataset)
+adj, features, y_train, y_val, y_test, train_mask, val_mask, test_mask = load_data("citeseer")
 adj_norm, adj_norm_sparse = preprocess_graph(adj)
 
 n_class = y_train.shape[1]
@@ -99,7 +105,7 @@ def get_new_adj(feed_dict, sess, model):
     new_adj = new_adj - np.diag(np.diagonal(new_adj))
     return new_adj
 
-def add_noises_on_adjs(adj_list, num_nodes, noise_ratio = 0.1, ):
+def add_noises_on_adjs(adj_list, num_nodes, noise_ratio = 0.1):
     noised_adj_list = []
     # add_idx_list = []
     adj_orig_list = []
@@ -109,7 +115,7 @@ def add_noises_on_adjs(adj_list, num_nodes, noise_ratio = 0.1, ):
                                             shape=adj_orig.shape)  # delete self loop
         adj_orig.eliminate_zeros()
         # adj_new, add_idxes = add_edges_between_labels(adj_orig, int(noise_ratio* num_nodes[i]), y_train)
-        adj_new = randomly_add_edges(adj_orig, int(noise_ratio* adj_orig.sum()), num_nodes[i])
+        adj_new = randomly_add_edges(adj_orig, int(noise_ratio* adj_orig.sum() / 2), num_nodes[i])
         noised_adj_list.append(adj_new)
         # add_idx_list.append(add_idxes)
         adj_orig_list.append(adj_orig)
@@ -141,8 +147,10 @@ def train():
 
     ############
     global_steps = tf.get_variable('global_step', trainable=False, initializer=0)
-    new_learning_rate = tf.train.exponential_decay(FLAGS.learn_rate_init, global_step=global_steps, decay_steps=100,
+    new_learning_rate_dis = tf.train.exponential_decay(FLAGS.learn_rate_init, global_step=global_steps, decay_steps=100,
                                                    decay_rate=0.95)
+    new_learning_rate_gen = tf.train.exponential_decay(FLAGS.learn_rate_init_gen, global_step=global_steps, decay_steps=100,
+                                                       decay_rate=0.95)
     new_learn_rate_value = FLAGS.learn_rate_init
     ## set the placeholders
     placeholders = {
@@ -162,7 +170,7 @@ def train():
                                        values = adj_clean.data, dense_shape = adj_clean.shape )
     if model_str == "mask_gvae":
         model = mask_gvae(placeholders, num_features, num_nodes, features_nonzero,
-                       new_learning_rate,
+                       new_learning_rate_dis, new_learning_rate_gen,
                        adj_clean = adj_clean_tensor, k = int(adj.sum()*noise_ratio))
         model.build_model()
     pos_weight = float(adj.shape[0] * adj.shape[0] - adj.sum()) / adj.sum()
@@ -178,7 +186,8 @@ def train():
                                   model=model,
                                   num_nodes=num_nodes,
                                   global_step=global_steps,
-                                  new_learning_rate = new_learning_rate,
+                                  new_learning_rate = new_learning_rate_dis,
+                                  new_learning_rate_gen = new_learning_rate_gen,
                                   placeholders = placeholders
                                   )
     # init the sess
@@ -198,7 +207,7 @@ def train():
     if if_train:
         for epoch in range(FLAGS.epochs):
             for i in tqdm(range(len(train_feature_input))):
-                train_one_graph(train_adj_list[i], train_adj_orig_list[i], train_feature_input[i], train_num_nodes_all[0], model, opt, placeholders,sess,new_learning_rate,feed_dict, epoch, i)
+                train_one_graph(train_adj_list[i], train_adj_orig_list[i], train_feature_input[i], train_num_nodes_all[0], model, opt, placeholders,sess,new_learning_rate_gen,feed_dict, epoch, i)
         saver = tf.train.Saver()
         saver.save(sess, "./checkpoints/{}/model.ckpt".format(cv_index))
         print("Optimization Finished!")
@@ -265,12 +274,13 @@ def train_one_graph(adj,adj_orig, features_csr ,num_node ,model, opt,placeholder
     node_mask[num_node:, :] = 0
     feed_dict.update({placeholders['node_mask']: node_mask})
     feed_dict.update({placeholders['dropout']: FLAGS.dropout})
-    model.k = adj_new.sum()*noise_ratio
+    model.k = int(adj_new.sum()*noise_ratio / 2)
     #####################################################
     t = time.time()
     ########
     # last_reg = current_reg
-    if epoch > int(FLAGS.epochs / 2):  ## here we can contorl the manner of new model
+    # if epoch > int(FLAGS.epochs / 2):  ## here we can contorl the manner of new model
+    if epoch >0:  ## here we can contorl the manner of new model
         _= sess.run([opt.G_min_op], feed_dict=feed_dict,options=run_options)
 
     else:
@@ -315,6 +325,7 @@ def test_one_graph(adj , adj_orig, features_csr, num_node ,model,placeholders, s
     feed_dict.update({placeholders["adj_orig"]: adj_label})
     feed_dict.update({placeholders["features"]: features})
     feed_dict.update({placeholders['dropout']: FLAGS.dropout})
+    model.k = int(adj_new.sum() * noise_ratio / 2)
     # feed_dict = construct_feed_dict(adj_norm, adj_label, features, clean_mask, noised_mask, noised_num, placeholders)
     x_tilde = sess.run(model.realD_tilde, feed_dict=feed_dict, options=run_options)
     noised_indexes, clean_indexes = get_noised_indexes(x_tilde, adj_new, num_node)
@@ -334,7 +345,7 @@ FLAGS = flags.FLAGS
 if __name__ == "__main__":
     current_time = datetime.datetime.now().strftime("%y%m%d%H%M%S")
     with open("results/results_%d_%s.txt"%(FLAGS.k, current_time), 'w+') as f_out:
-        f_out.write("the_original_graph" +" "+ "denoised_graph" + ' ' + 'PSNR'+ ' ' + 'WL' + "\n")
+        f_out.write( 'PSNR'+ ' ' + 'WL' + "\n")
         for i in range(1):
-            psnr,wls,  testacc, testaccnew_adjfea = train()
-            f_out.write(str(testacc)+" "+str(testaccnew_adjfea)+ ' '+str(psnr)+ ' '+str(wls) + "\n")
+            psnr,wls = train()
+            f_out.write(str(psnr)+ ' '+str(wls) + "\n")

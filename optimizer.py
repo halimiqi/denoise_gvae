@@ -7,7 +7,7 @@ FLAGS = flags.FLAGS
 
 class Optimizer(object):
     def __init__(self, preds, labels, model, num_nodes,
-                 global_step, new_learning_rate,
+                 global_step, new_learning_rate, new_learning_rate_gen,
                  if_drop_edge = True, **kwargs):
         allowed_kwargs = {'placeholders'}
         for kwarg in kwargs.keys():
@@ -27,7 +27,7 @@ class Optimizer(object):
         self.num_nodes = num_nodes
         self.if_drop_edge = if_drop_edge
         self.last_reg = tf.Variable(0,name = "last_reg", dtype = tf.float32, trainable=False)
-        self.generate_optimizer = tf.train.RMSPropOptimizer(learning_rate= new_learning_rate)
+        self.generate_optimizer = tf.train.RMSPropOptimizer(learning_rate= new_learning_rate_gen)
         self.discriminate_optimizer = tf.train.RMSPropOptimizer(learning_rate = new_learning_rate)
         generate_varlist = [var for var in tf.trainable_variables() if (
                     'generate' in var.name) or ('encoder' in var.name)]  

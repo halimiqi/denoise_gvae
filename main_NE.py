@@ -21,6 +21,8 @@ from gvae_ablation import mask_gvae
 from optimizer_ablation import Optimizer
 from gcn.utils import load_data
 from tqdm import tqdm
+from ND import ND
+import scipy.io as scio
 from gcn import train_test as GCN
 from graph.dataset import load
 # Settings
@@ -123,6 +125,18 @@ def get_new_feature(feed_dict, sess,flip_features_csr, feature_entry, model):
             flip_features_lil[index, j] = 1 - flip_features_lil[index, j]
     return flip_features_lil.tocsr()
 # Train model
+
+def save_noise_mat():
+    train_adj_list, train_adj_orig_list = add_noises_on_adjs(train_structure_input, train_num_nodes_all)
+    test_adj_list, test_adj_orig_list = add_noises_on_adjs(test_structure_input, test_num_nodes_all)
+    save_path = "./data/NE/"
+    for i in range(len(test_adj_list)):
+        file_name = dataset_index + "_" +str(i) +".mat"
+        scio.savemat(os.path.join(save_path, file_name), {'adj_new': test_adj_list[i].toarray()})
+    return
+
+
+
 def train():
     ## add noise label
     train_adj_list, train_adj_orig_list = add_noises_on_adjs(train_structure_input, train_num_nodes_all)
@@ -137,87 +151,16 @@ def train():
     adj_label = train_adj_list[0] + sp.eye(adj.shape[0])
     adj_label = sparse_to_tuple(adj_label)
     num_nodes = adj.shape[0]
-
-
     ############
-    global_steps = tf.get_variable('global_step', trainable=False, initializer=0)
-    new_learning_rate = tf.train.exponential_decay(FLAGS.learn_rate_init, global_step=global_steps, decay_steps=100,
-                                                   decay_rate=0.95)
-    new_learn_rate_value = FLAGS.learn_rate_init
-    ## set the placeholders
-    placeholders = {
-        'features': tf.sparse_placeholder(tf.float32, name= "ph_features"),
-        'adj': tf.sparse_placeholder(tf.float32,name= "ph_adj"),
-        'adj_orig': tf.sparse_placeholder(tf.float32, name = "ph_orig"),
-        'dropout': tf.placeholder_with_default(0.3, shape=(), name = "ph_dropout"),
-        'clean_mask': tf.placeholder(tf.int32),
-        'noised_mask': tf.placeholder(tf.int32),
-        'noised_num':tf.placeholder(tf.int32),
-        'node_mask':tf.placeholder(tf.float32)
-    }
-    # build models
-    model = None
-    adj_clean = adj_orig.tocoo()
-    adj_clean_tensor = tf.SparseTensor(indices =np.stack([adj_clean.row,adj_clean.col], axis = -1),
-                                       values = adj_clean.data, dense_shape = adj_clean.shape )
-    if model_str == "mask_gvae":
-        model = mask_gvae(placeholders, num_features, num_nodes, features_nonzero,
-                       new_learning_rate,
-                       adj_clean = adj_clean_tensor, k = int(adj.sum()*noise_ratio))
-        model.build_model()
-    pos_weight = float(adj.shape[0] * adj.shape[0] - adj.sum()) / adj.sum()
-    norm = adj.shape[0] * adj.shape[0] / float((adj.shape[0] * adj.shape[0] - adj.sum()) * 2)
-    opt = 0
-    # Optimizer
-    with tf.name_scope('optimizer'):
-        if model_str == 'mask_gvae':
-            opt = Optimizer(preds=tf.reshape(model.x_tilde, [-1]),
-                                  labels=tf.reshape(
-                                      tf.sparse_tensor_to_dense(placeholders['adj_orig'], validate_indices=False),
-                                      [-1]),
-                                  model=model,
-                                  num_nodes=num_nodes,
-                                  global_step=global_steps,
-                                  new_learning_rate = new_learning_rate,
-                                  placeholders = placeholders
-                                  )
-    # init the sess
-    sess = tf.Session()
-    sess.run(tf.global_variables_initializer())
-    ### initial clean and noised_mask
-    clean_mask = np.array([1,2,3,4,5])
-    noised_mask = np.array([6,7,8,9,10])
-    noised_num = noised_mask.shape[0] / 2
-    # ##################################
-    feed_dict = construct_feed_dict(adj_norm, adj_label, features,clean_mask, noised_mask,noised_num,  placeholders)
-    node_mask = np.ones([num_nodes, n_class])
-    node_mask[train_num_nodes_all[0]:, :] = 0
-    feed_dict.update({placeholders['node_mask']:node_mask})
-    feed_dict.update({placeholders['dropout']: FLAGS.dropout})
-    # #####################################################
-    if if_train:
-        for epoch in range(FLAGS.epochs):
-            for i in tqdm(range(len(train_feature_input))):
-                train_one_graph(train_adj_list[i], train_adj_orig_list[i], train_feature_input[i], train_num_nodes_all[0], model, opt, placeholders,sess,new_learning_rate,feed_dict, epoch, i)
-        saver = tf.train.Saver()
-        saver.save(sess, "./checkpoints/{}/model.ckpt".format(cv_index))
-        print("Optimization Finished!")
-        psnr_list = []
-        wls_list = []
-        for i in range(len(test_feature_input)):
-            psnr, wls = test_one_graph(test_adj_list[i], test_adj_orig_list[i],test_feature_input[i],train_num_nodes_all[i], model, placeholders, sess, feed_dict)
-            psnr_list.append(psnr)
-            wls_list.append(wls)
+    psnr_list = []
+    wls_list = []
+    load_path = "./data/NE_denoise"
+    for i in range(len(test_feature_input)):
+        load_file = os.path.join(load_path,  dataset_index + "_" +str(i) +".mat")
+        psnr, wls = test_one_graph_NE(test_adj_list[i], test_adj_orig_list[i],test_feature_input[i],train_num_nodes_all[i], load_file)
+        psnr_list.append(psnr)
+        wls_list.append(wls)
     # new_adj = get_new_adj(feed_dict,sess, model)
-    else:
-      saver = tf.train.Saver()
-      saver.restore(sess, "./checkpoints/{}/model.ckpt".format(cv_index))
-      psnr_list = []
-      wls_list = []
-      for i in range(len(test_feature_input)):
-          psnr, wls = test_one_graph(test_adj_list[i],test_adj_orig_list[i], test_feature_input[i], train_num_nodes_all[i], model, placeholders, sess, feed_dict)
-          psnr_list.append(psnr)
-          wls_list.append(wls)
     ##################################
     ################## the PSRN and WL #########################
     print("#"*15)
@@ -265,7 +208,7 @@ def train_one_graph(adj,adj_orig, features_csr ,num_node ,model, opt,placeholder
     node_mask[num_node:, :] = 0
     feed_dict.update({placeholders['node_mask']: node_mask})
     feed_dict.update({placeholders['dropout']: FLAGS.dropout})
-    model.k = int(adj_new.sum()*noise_ratio / 2)
+    model.k = adj_new.sum()*noise_ratio
     #####################################################
     t = time.time()
     ########
@@ -289,7 +232,7 @@ def train_one_graph(adj,adj_orig, features_csr ,num_node ,model, opt,placeholder
         ##########################################
     return
 
-def test_one_graph(adj , adj_orig, features_csr, num_node ,model,placeholders, sess, feed_dict):
+def test_one_graph(adj , adj_orig, features_csr, num_node):
     adj_orig = adj_orig - sp.dia_matrix((adj_orig.diagonal()[np.newaxis, :], [0]),
                                         shape=adj_orig.shape)  # delete self loop
     adj_orig.eliminate_zeros()
@@ -307,17 +250,10 @@ def test_one_graph(adj , adj_orig, features_csr, num_node ,model,placeholders, s
     adj_clean = adj_orig.tocsr()
 
     adj_norm, adj_norm_sparse = preprocess_graph(adj_new)
-    feed_dict.update({placeholders["adj"]: adj_norm})
-    feed_dict.update({placeholders["adj_orig"]: adj_label})
-    feed_dict.update({placeholders["features"]: features})
-    feed_dict.update({placeholders['dropout']: FLAGS.dropout})
-    model.k = int(adj_new.sum() * noise_ratio / 2)
     # feed_dict = construct_feed_dict(adj_norm, adj_label, features, clean_mask, noised_mask, noised_num, placeholders)
     x_tilde = sess.run(model.realD_tilde, feed_dict=feed_dict, options=run_options)
     noised_indexes, clean_indexes = get_noised_indexes(x_tilde, adj_new, num_node)
-    feed_dict.update({placeholders["noised_mask"]: noised_indexes})
-    feed_dict.update({placeholders["clean_mask"]: clean_indexes})
-    feed_dict.update({placeholders["noised_num"]: len(noised_indexes) / 2})
+    model.k = adj_new.sum() * noise_ratio
     new_adj = get_new_adj(feed_dict, sess, model)
     new_adj_sparse = sp.csr_matrix(new_adj)
     psnr = PSNR(adj_clean[:num_node, :num_node], new_adj_sparse[:num_node, :num_node])
@@ -325,11 +261,32 @@ def test_one_graph(adj , adj_orig, features_csr, num_node ,model,placeholders, s
     wls = WL_no_label(adj_clean[:num_node, :num_node], new_adj_sparse[:num_node, :num_node])
     return psnr, wls
 
+def test_one_graph_NE(adj , adj_orig, features_csr, num_node, load_file):
+    adj_orig = adj_orig - sp.dia_matrix((adj_orig.diagonal()[np.newaxis, :], [0]),
+                                        shape=adj_orig.shape)  # delete self loop
+    adj_orig.eliminate_zeros()
+    adj_new = adj
+    row_sum = adj_new.sum(1).A1
+    row_sum = sp.diags(row_sum)
+    ##NE algorithm
+    # load_file = "noised_graph/cora_1800_900.mat"
+    temp_data = scio.loadmat(load_file)
+    new_adj = temp_data["denoised_adj"]
+    new_adj = sp.csr_matrix(new_adj)
+    adj_clean = adj_orig.tocsr()
+    psnr = PSNR(adj_clean[:num_node, :num_node], new_adj[:num_node, :num_node])
+    y_label = y_train + y_val + y_test
+    wls = WL_no_label(adj_clean[:num_node, :num_node], new_adj[:num_node, :num_node])
+    return psnr, wls
+
 
 
 FLAGS = flags.FLAGS
 if __name__ == "__main__":
     current_time = datetime.datetime.now().strftime("%y%m%d%H%M%S")
+    ######################################### step 1
+    # save_noise_mat()
+    ######################################### step 2 load the denoise matrix in the status
     with open("results/results_%d_%s.txt"%(FLAGS.k, current_time), 'w+') as f_out:
         f_out.write('PSNR'+ ' ' + 'WL' + "\n")
         for i in range(1):
