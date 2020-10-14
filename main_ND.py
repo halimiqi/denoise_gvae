@@ -66,6 +66,7 @@ dataset_str = FLAGS.dataset
 noise_ratio = 0.1
 ## Load datasets
 dataset_index = "IMDB-BINARY"
+# dataset_index = "REDDIT-BINARY"
 train_structure_input, train_feature_input, train_y, \
     train_num_nodes_all, test_structure_input, test_feature_input, \
     test_y, test_num_nodes_all = load_data_subgraphs(dataset_index, train_ratio=0.9)
@@ -268,8 +269,8 @@ def test_one_graph_ND(adj , adj_orig, features_csr, num_node):
     selected_idx = np.squeeze(idx[:k])
     row = selected_idx // adj_dense.shape[0]
     col = selected_idx % adj_dense.shape[1]
-    adj_dense[row, col] = 1
-    adj_dense[col, row] = 1
+    adj_dense[row, col] = 0
+    adj_dense[col, row] = 0
     new_adj = sp.csr_matrix(adj_dense)
     # adj_label_sparse = adj_label
     # adj_label = sparse_to_tuple(adj_label)

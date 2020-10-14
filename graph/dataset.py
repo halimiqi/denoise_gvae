@@ -169,7 +169,7 @@ def load(dataset):
 
 if __name__ == '__main__':
     # MUTAG, PTC_M R, IMDB-BINARY, IMDB-MULTI, REDDIT-BINARY, REDDIT-MULTI-5K,
-    adj, diff, feat, labels = load('PTC_MR')
-    import pdb; pdb.set_trace()
+    download("REDDIT-BINARY")
+    # adj, diff, feat, labels = load('PTC_MR')
     print('done')
 

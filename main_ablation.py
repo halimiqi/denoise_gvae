@@ -28,7 +28,7 @@ flags = tf.app.flags
 FLAGS = flags.FLAGS
 ##### this is for gae part
 flags.DEFINE_integer('n_clusters', 6, 'Number of epochs to train.')    # this one can be calculated according to labels
-flags.DEFINE_integer('epochs', 1, 'Number of epochs to train.')
+flags.DEFINE_integer('epochs', 5, 'Number of epochs to train.')
 flags.DEFINE_integer('hidden1', 32, 'Number of units in hidden layer 1.')
 flags.DEFINE_integer('hidden2', 16, 'Number of units in hidden layer 2.')
 flags.DEFINE_float('weight_decay', 0., 'Weight for L2 loss on embedding matrix.')
@@ -46,7 +46,7 @@ flags.DEFINE_integer('features', 1, 'Whether to use features (1) or not (0).')
 from tensorflow.python.client import device_lib
 flags.DEFINE_integer("batch_size" , 64, "batch size")
 flags.DEFINE_integer("latent_dim" , 16, "the dim of latent code")
-flags.DEFINE_float("learn_rate_init" , 1e-02, "the init of learn rate")
+flags.DEFINE_float("learn_rate_init" , 1e-03, "the init of learn rate")
 flags.DEFINE_integer("k", 20, "The edges to delete for the model")
 flags.DEFINE_integer("k_noise", 20, "The k edges to add noise")
 flags.DEFINE_integer("k_features", 300, "The nodes to flip features for the model")
@@ -313,13 +313,30 @@ def test_one_graph(adj , adj_orig, features_csr, num_node ,model,placeholders, s
     feed_dict.update({placeholders['dropout']: FLAGS.dropout})
     model.k = int(adj_new.sum() * noise_ratio / 2)
     # feed_dict = construct_feed_dict(adj_norm, adj_label, features, clean_mask, noised_mask, noised_num, placeholders)
-    x_tilde = sess.run(model.realD_tilde, feed_dict=feed_dict, options=run_options)
-    noised_indexes, clean_indexes = get_noised_indexes(x_tilde, adj_new, num_node)
-    feed_dict.update({placeholders["noised_mask"]: noised_indexes})
-    feed_dict.update({placeholders["clean_mask"]: clean_indexes})
-    feed_dict.update({placeholders["noised_num"]: len(noised_indexes) / 2})
-    new_adj = get_new_adj(feed_dict, sess, model)
-    new_adj_sparse = sp.csr_matrix(new_adj)
+    x_tilde = sess.run(model.x_tilde_output_ori, feed_dict=feed_dict, options=run_options)
+    adj_dense = adj_new.todense()
+    x_tilde[adj_dense == 0] = 1
+    # x_tilde[np.diag(np.ones(adj_dense.shape[0])) == 1] == 1
+    mask = np.tril(np.ones(adj_dense.shape))
+    x_tilde[mask == 1] = 1
+    x_tilde[num_node:, num_node:] = 1
+    x_tilde_flat = x_tilde.flatten()
+    x_tilde_flat = np.squeeze(np.array(x_tilde_flat))
+    idx = np.argsort(x_tilde_flat)
+    k = int(adj_new.sum() * noise_ratio / 2)
+    selected_idx = np.squeeze(idx[:k])
+    row = selected_idx // adj_dense.shape[0]
+    col = selected_idx % adj_dense.shape[1]
+    adj_dense[row, col] = 0
+    adj_dense[col, row] = 0
+    new_adj_sparse = sp.csr_matrix(adj_dense)
+
+    # noised_indexes, clean_indexes = get_noised_indexes(x_tilde, adj_new, num_node)
+    # feed_dict.update({placeholders["noised_mask"]: noised_indexes})
+    # feed_dict.update({placeholders["clean_mask"]: clean_indexes})
+    # feed_dict.update({placeholders["noised_num"]: len(noised_indexes) / 2})
+    # new_adj = get_new_adj(feed_dict, sess, model)
+    # new_adj_sparse = sp.csr_matrix(new_adj)
     psnr = PSNR(adj_clean[:num_node, :num_node], new_adj_sparse[:num_node, :num_node])
     y_label = y_train + y_val + y_test
     wls = WL_no_label(adj_clean[:num_node, :num_node], new_adj_sparse[:num_node, :num_node])
