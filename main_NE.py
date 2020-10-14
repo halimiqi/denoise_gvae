@@ -30,7 +30,7 @@ flags = tf.app.flags
 FLAGS = flags.FLAGS
 ##### this is for gae part
 flags.DEFINE_integer('n_clusters', 6, 'Number of epochs to train.')    # this one can be calculated according to labels
-flags.DEFINE_integer('epochs', 1, 'Number of epochs to train.')
+flags.DEFINE_integer('epochs', 10, 'Number of epochs to train.')
 flags.DEFINE_integer('hidden1', 32, 'Number of units in hidden layer 1.')
 flags.DEFINE_integer('hidden2', 16, 'Number of units in hidden layer 2.')
 flags.DEFINE_float('weight_decay', 0., 'Weight for L2 loss on embedding matrix.')
@@ -66,7 +66,8 @@ model_str = FLAGS.model
 dataset_str = FLAGS.dataset
 noise_ratio = 0.1
 ## Load datasets
-dataset_index = "IMDB-BINARY"
+# MUTAG, PTC_MR, IMDB-BINARY, IMDB-MULTI, REDDIT-BINARY
+dataset_index = "PTC_MR"
 train_structure_input, train_feature_input, train_y, \
     train_num_nodes_all, test_structure_input, test_feature_input, \
     test_y, test_num_nodes_all = load_data_subgraphs(dataset_index, train_ratio=0.9)
@@ -285,10 +286,11 @@ FLAGS = flags.FLAGS
 if __name__ == "__main__":
     current_time = datetime.datetime.now().strftime("%y%m%d%H%M%S")
     ######################################### step 1
-    # save_noise_mat()
+    save_noise_mat()
     ######################################### step 2 load the denoise matrix in the status
-    with open("results/results_%d_%s.txt"%(FLAGS.k, current_time), 'w+') as f_out:
-        f_out.write('PSNR'+ ' ' + 'WL' + "\n")
-        for i in range(1):
-            psnr,wls, = train()
-            f_out.write(str(psnr)+ ' '+str(wls) + "\n")
+    # with open("results/results_%d_%s.txt"%(FLAGS.k, current_time), 'w+') as f_out:
+    #     f_out.write('PSNR'+ ' ' + 'WL' + "\n")
+    #     for i in range(1):
+    #         psnr,wls, = train()
+    #         f_out.write(str(psnr)+ ' '+str(wls) + "\n")
+    # print(dataset_index)
