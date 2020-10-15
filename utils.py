@@ -345,9 +345,9 @@ def load_data_subgraphs(dataset_name, train_ratio):
 
 
 def PSNR(clean_adj, modified_adj):
-    mse = spnorm(clean_adj - modified_adj, ord = 1) / (clean_adj.shape[0]*(clean_adj.shape[1] - 1))
+    mse = max(spnorm(clean_adj - modified_adj, ord = 1), 1.0)/ (clean_adj.shape[0]*(clean_adj.shape[1] - 1))
     # print(clean_adj.shape[0]*(clean_adj.shape[1] - 1))
-    # mse = max(mse, 1.0/clean_adj.shape[0]*(clean_adj.shape[1] - 1))
+    # mse = max(mse, 1.0)/clean_adj.shape[0]*(clean_adj.shape[1] - 1)
     # print(mse)
     PSNR = 10 * np.log(1/ mse)
     return PSNR
