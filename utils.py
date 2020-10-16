@@ -207,7 +207,7 @@ def randomly_add_edges(adj, k, num_node):
     flag_adj = flag_adj[:num_node, :num_node]
     idx_list = np.argwhere(flag_adj == 1)
     if len(idx_list) == 0:
-        print("there is a full graph!!")
+        # print("there is a full graph!!")
         return adj, 0
     selected_idx_of_idx_list = np.random.choice(len(idx_list),size = min(max(k,1), len(idx_list)), replace = False)
     selected_idx = idx_list[selected_idx_of_idx_list]
@@ -345,7 +345,8 @@ def load_data_subgraphs(dataset_name, train_ratio):
 
 
 def PSNR(clean_adj, modified_adj):
-    mse = spnorm(clean_adj - modified_adj, ord = 1) / (clean_adj.shape[0]*(clean_adj.shape[1] - 1))
+    # mse = spnorm(clean_adj - modified_adj, ord = 1) / (clean_adj.shape[0]*(clean_adj.shape[1] - 1))
+    mse = max(spnorm(clean_adj - modified_adj, ord = 1),1.0) / (clean_adj.shape[0]*(clean_adj.shape[1] - 1))
     PSNR = 10 * np.log(1/ mse)
     return PSNR
 
