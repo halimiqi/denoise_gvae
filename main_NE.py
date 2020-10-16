@@ -66,6 +66,7 @@ model_str = FLAGS.model
 dataset_str = FLAGS.dataset
 noise_ratio = 0.1
 ## Load datasets
+# IMDB-BINARY, IMDB-MULTI, REDDIT-BINARY, MUTAG, PTC_MR
 dataset_index = "IMDB-BINARY"
 train_structure_input, train_feature_input, train_y, \
     train_num_nodes_all, test_structure_input, test_feature_input, \
@@ -294,3 +295,6 @@ if __name__ == "__main__":
         for i in range(1):
             psnr,wls, = train()
             f_out.write(str(psnr)+ ' '+str(wls) + "\n")
+    print(dataset_index)
+    print(current_time)
+    

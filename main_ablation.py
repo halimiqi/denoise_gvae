@@ -27,8 +27,8 @@ from graph.dataset import load
 flags = tf.app.flags
 FLAGS = flags.FLAGS
 ##### this is for gae part
-flags.DEFINE_integer('n_clusters', 6, 'Number of epochs to train.')    # this one can be calculated according to labels
-flags.DEFINE_integer('epochs', 1, 'Number of epochs to train.')
+flags.DEFINE_integer('n_clusters', 3, 'Number of epochs to train.')    # this one can be calculated according to labels
+flags.DEFINE_integer('epochs', 5, 'Number of epochs to train.')
 flags.DEFINE_integer('hidden1', 32, 'Number of units in hidden layer 1.')
 flags.DEFINE_integer('hidden2', 16, 'Number of units in hidden layer 2.')
 flags.DEFINE_float('weight_decay', 0., 'Weight for L2 loss on embedding matrix.')
@@ -64,6 +64,7 @@ model_str = FLAGS.model
 dataset_str = FLAGS.dataset
 noise_ratio = 0.1
 ## Load datasets
+# IMDB-BINARY, IMDB-MULTI, REDDIT-BINARY, MUTAG, PTC_MR
 dataset_index = "MUTAG"
 train_structure_input, train_feature_input, train_y, \
     train_num_nodes_all, test_structure_input, test_feature_input, \
@@ -354,3 +355,8 @@ if __name__ == "__main__":
         for i in range(1):
             psnr,wls, = train()
             f_out.write(str(psnr)+ ' '+str(wls) + "\n")
+    print(dataset_index)
+    print(current_time)
+
+
+

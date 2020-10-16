@@ -70,7 +70,8 @@ dataset_str = FLAGS.dataset
 noise_ratio = 0.1
 ## Load datasets
 # dataset_index = "IMDB-BINARY"
-dataset_index = FLAGS.dataset
+# IMDB-BINARY, IMDB-MULTI, REDDIT-BINARY, MUTAG, PTC_MR
+dataset_index = 'PTC_MR'
 train_structure_input, train_feature_input, train_y, \
     train_num_nodes_all, test_structure_input, test_feature_input, \
     test_y, test_num_nodes_all = load_data_subgraphs(dataset_index, train_ratio=0.9)
@@ -385,3 +386,5 @@ if __name__ == "__main__":
         for i in range(1):
             psnr,wls = train()
             f_out.write(str(psnr)+ ' '+str(wls) + "\n")
+    print(dataset_index)
+    print(current_time)
