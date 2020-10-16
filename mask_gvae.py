@@ -121,7 +121,8 @@ class mask_gvae(object):
         noised_index = tf.gather(noised_index, selected)
         new_row = noised_index // self.n_samples
         new_col = noised_index % self.n_samples
-        noised_index = tf.squeeze(tf.stack([new_row,new_col], axis = -1))
+        noised_index = (tf.stack([new_row,new_col], axis = -1))[:,0,:]
+        #noised_index = tf.squeeze(tf.stack([new_row,new_col], axis = -1))
         sampled_dist = tf.gather_nd(x_tilde, noised_index)
         sampled_dist = tf.reshape(sampled_dist, [-1])
         sampled_dist = tf.reduce_max(sampled_dist) - sampled_dist   # delete the edges with smallest edges

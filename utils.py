@@ -208,12 +208,12 @@ def randomly_add_edges(adj, k, num_node):
     idx_list = np.argwhere(flag_adj == 1)
     if len(idx_list) == 0:
         print("there is a full graph!!")
-        return adj
-    selected_idx_of_idx_list = np.random.choice(len(idx_list),size = min(max(k,1), len(idx_list)))
+        return adj, 0
+    selected_idx_of_idx_list = np.random.choice(len(idx_list),size = min(max(k,1), len(idx_list)), replace = False)
     selected_idx = idx_list[selected_idx_of_idx_list]
     adj_out[selected_idx[:,0],selected_idx[:,1]] = 1
     adj_out[selected_idx[:, 1], selected_idx[:, 0]] = 1
-    return adj_out
+    return adj_out, min(max(k,1), len(idx_list))
 
 def add_edges_between_labels(adj,k, y_train,seed = 152):
     "add edges"

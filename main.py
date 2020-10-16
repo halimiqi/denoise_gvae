@@ -30,7 +30,7 @@ FLAGS = flags.FLAGS
 
 ###
 ##### this is for gae part
-flags.DEFINE_integer('n_clusters', 6, 'Number of epochs to train.')    # this one can be calculated according to labels
+flags.DEFINE_integer('n_clusters', 3, 'Number of epochs to train.')    # this one can be calculated according to labels
 flags.DEFINE_integer('epochs', 5, 'Number of epochs to train.')
 flags.DEFINE_integer('hidden1', 32, 'Number of units in hidden layer 1.')
 flags.DEFINE_integer('hidden2', 16, 'Number of units in hidden layer 2.')
@@ -44,7 +44,7 @@ flags.DEFINE_integer('early_stopping', 10, 'Tolerance for: early stopping (# of 
 flags.DEFINE_float('dropout', 0.3, 'Dropout rate (1 - keep probability).')
 flags.DEFINE_float('mincut_r', 0.3, 'The r parameters for the cutmin loss orth loss')   # ORTH LOSS
 flags.DEFINE_string('model', 'mask_gvae', 'Model string.')
-flags.DEFINE_string('dataset', 'IMDB-BINARY', 'Dataset string.')
+flags.DEFINE_string('dataset', 'MUTAG', 'Dataset string.')
 flags.DEFINE_float("noise_ratio" , 0.1, "the init of learn rate")
 flags.DEFINE_integer('features', 1, 'Whether to use features (1) or not (0).')
 from tensorflow.python.client import device_lib
@@ -58,7 +58,7 @@ flags.DEFINE_integer("k_features", 300, "The nodes to flip features for the mode
 flags.DEFINE_integer("k_features_noise", 300, "The nodes to add noise and flip features")
 flags.DEFINE_integer("k_features_dim", 1, "The nodes to add noise and flip features")
 flags.DEFINE_float('ratio_loss_fea', 1, 'the ratio of generate loss for features')
-flags.DEFINE_boolean("train", True, "Training or Test")
+flags.DEFINE_boolean("train", False, "Training or Test")
 ###############################
 if_train = FLAGS.train
 cv_index = int(if_train)
@@ -79,7 +79,7 @@ train_structure_input, train_feature_input, train_y, \
 adj, features, y_train, y_val, y_test, train_mask, val_mask, test_mask = load_data("citeseer")
 adj_norm, adj_norm_sparse = preprocess_graph(adj)
 
-n_class = y_train.shape[1]
+n_class = FLAGS.n_clusters
 features_normlize = normalize(features.tocsr(), axis=0, norm='max')
 features = sp.csr_matrix(features_normlize)
 
@@ -100,26 +100,52 @@ cost_val = []
 acc_val = []
 val_roc_score = []
 
-def get_new_adj(feed_dict, sess, model):
-    new_adj = model.new_adj.eval(session=sess, feed_dict=feed_dict)
-    new_adj = new_adj - np.diag(np.diagonal(new_adj))
+def get_new_adj(feed_dict, sess, model, noised_index, adj_new, k, num_node):
+    x_tilde = model.x_tilde.eval(session=sess, feed_dict=feed_dict)
+    new_adj = adj_new.copy()
+    noised_index = np.array(noised_index)
+    if (len(noised_index) == 0) or (k == 0):
+        return new_adj
+    row = noised_index // adj_new.shape[0]
+    col = noised_index % adj_new.shape[0]
+    possible_edges = np.stack([row,col], axis = 0)
+    noised_edges = []
+    for i in range(possible_edges.shape[1]):
+        if (possible_edges[0,i] > possible_edges[1,i]) and (possible_edges[0,i] < num_node) and (possible_edges[1,i] < num_node):
+            noised_edges.append([possible_edges[:,i]])
+    if len(noised_edges) == 0:
+        return new_adj
+    mask = np.ones_like(x_tilde)
+    noised_edges = np.array(noised_edges)[:,0,:]
+    mask[noised_edges[:,0], noised_edges[:,1]] = x_tilde[noised_edges[:,0], noised_edges[:,1]]
+    mask_flat = mask.flatten()
+    idxes_list = np.argsort(mask_flat)
+    selected_idx = np.squeeze(idxes_list[:min(len(idxes_list), k)])
+    row = selected_idx // x_tilde.shape[0]
+    col = selected_idx % x_tilde.shape[0]
+    new_adj[row, col] = 0
+    new_adj[col, row] = 0
+    new_adj = new_adj - sp.dia_matrix((new_adj.diagonal()[np.newaxis, :], [0]),
+                                            shape=new_adj.shape)
     return new_adj
 
-def add_noises_on_adjs(adj_list, num_nodes, noise_ratio = 0.1):
+def add_noises_on_adjs(adj_list, num_nodes, noise_ratio = 0.1, ):
     noised_adj_list = []
     # add_idx_list = []
     adj_orig_list = []
+    k_list = []
     for i in range(len(adj_list)):
         adj_orig = adj_list[i]
         adj_orig = adj_orig - sp.dia_matrix((adj_orig.diagonal()[np.newaxis, :], [0]),
                                             shape=adj_orig.shape)  # delete self loop
         adj_orig.eliminate_zeros()
         # adj_new, add_idxes = add_edges_between_labels(adj_orig, int(noise_ratio* num_nodes[i]), y_train)
-        adj_new = randomly_add_edges(adj_orig, int(noise_ratio* adj_orig.sum() / 2), num_nodes[i])
+        adj_new,k_real = randomly_add_edges(adj_orig, int(noise_ratio* adj_orig[:num_nodes[i], :num_nodes[i]].sum() / 2), num_nodes[i])
+        k_list.append(k_real)
         noised_adj_list.append(adj_new)
         # add_idx_list.append(add_idxes)
         adj_orig_list.append(adj_orig)
-    return noised_adj_list, adj_orig_list
+    return noised_adj_list, adj_orig_list, k_list
 
 def get_new_feature(feed_dict, sess,flip_features_csr, feature_entry, model):
     new_indexes = model.flip_feature_indexes.eval(session = sess, feed_dict = feed_dict)
@@ -131,8 +157,8 @@ def get_new_feature(feed_dict, sess,flip_features_csr, feature_entry, model):
 # Train model
 def train():
     ## add noise label
-    train_adj_list, train_adj_orig_list = add_noises_on_adjs(train_structure_input, train_num_nodes_all)
-    test_adj_list, test_adj_orig_list = add_noises_on_adjs(test_structure_input, test_num_nodes_all)
+    train_adj_list, train_adj_orig_list, train_k_list = add_noises_on_adjs(train_structure_input, train_num_nodes_all)
+    test_adj_list, test_adj_orig_list, test_k_list = add_noises_on_adjs(test_structure_input, test_num_nodes_all)
 
     adj = train_adj_list[0]
     features_csr = train_feature_input[0]
@@ -207,14 +233,14 @@ def train():
     if if_train:
         for epoch in range(FLAGS.epochs):
             for i in tqdm(range(len(train_feature_input))):
-                train_one_graph(train_adj_list[i], train_adj_orig_list[i], train_feature_input[i], train_num_nodes_all[0], model, opt, placeholders,sess,new_learning_rate_gen,feed_dict, epoch, i)
+                train_one_graph(train_adj_list[i], train_adj_orig_list[i], train_feature_input[i], train_num_nodes_all[i], train_k_list[i], model, opt, placeholders,sess,new_learning_rate_gen,feed_dict, epoch, i)
         saver = tf.train.Saver()
         saver.save(sess, "./checkpoints/{}/model.ckpt".format(cv_index))
         print("Optimization Finished!")
         psnr_list = []
         wls_list = []
         for i in range(len(test_feature_input)):
-            psnr, wls = test_one_graph(test_adj_list[i], test_adj_orig_list[i],test_feature_input[i],train_num_nodes_all[i], model, placeholders, sess, feed_dict)
+            psnr, wls = test_one_graph(test_adj_list[i], test_adj_orig_list[i],test_feature_input[i],test_num_nodes_all[i],test_k_list[i] , model, placeholders, sess, feed_dict)
             psnr_list.append(psnr)
             wls_list.append(wls)
     # new_adj = get_new_adj(feed_dict,sess, model)
@@ -224,7 +250,7 @@ def train():
       psnr_list = []
       wls_list = []
       for i in range(len(test_feature_input)):
-          psnr, wls = test_one_graph(test_adj_list[i],test_adj_orig_list[i], test_feature_input[i], train_num_nodes_all[i], model, placeholders, sess, feed_dict)
+          psnr, wls = test_one_graph(test_adj_list[i],test_adj_orig_list[i], test_feature_input[i], test_num_nodes_all[i], test_k_list[i], model, placeholders, sess, feed_dict)
           psnr_list.append(psnr)
           wls_list.append(wls)
     ##################################
@@ -237,7 +263,7 @@ def train():
     print(np.mean(wls_list))
     return psnr,wls
 
-def train_one_graph(adj,adj_orig, features_csr ,num_node ,model, opt,placeholders, sess,new_learning_rate,feed_dict, epoch, graph_index):
+def train_one_graph(adj,adj_orig, features_csr ,num_node, k_num ,model, opt,placeholders, sess,new_learning_rate,feed_dict, epoch, graph_index):
     adj_orig = adj_orig - sp.dia_matrix((adj_orig.diagonal()[np.newaxis, :], [0]),
                                         shape=adj_orig.shape)  # delete self loop
     adj_orig.eliminate_zeros()
@@ -274,13 +300,13 @@ def train_one_graph(adj,adj_orig, features_csr ,num_node ,model, opt,placeholder
     node_mask[num_node:, :] = 0
     feed_dict.update({placeholders['node_mask']: node_mask})
     feed_dict.update({placeholders['dropout']: FLAGS.dropout})
-    model.k = int(adj_new.sum()*noise_ratio / 2)
+    model.k = k_num
     #####################################################
     t = time.time()
     ########
     # last_reg = current_reg
-    # if epoch > int(FLAGS.epochs / 2):  ## here we can contorl the manner of new model
-    if epoch >0:  ## here we can contorl the manner of new model
+    if epoch > int(FLAGS.epochs / 2):  ## here we can contorl the manner of new model
+    # if epoch >0:  ## here we can contorl the manner of new model
         _= sess.run([opt.G_min_op], feed_dict=feed_dict,options=run_options)
 
     else:
@@ -303,7 +329,7 @@ def train_one_graph(adj,adj_orig, features_csr ,num_node ,model, opt,placeholder
         ##########################################
     return
 
-def test_one_graph(adj , adj_orig, features_csr, num_node ,model,placeholders, sess, feed_dict):
+def test_one_graph(adj , adj_orig, features_csr, num_node, k_num ,model,placeholders, sess, feed_dict):
     adj_orig = adj_orig - sp.dia_matrix((adj_orig.diagonal()[np.newaxis, :], [0]),
                                         shape=adj_orig.shape)  # delete self loop
     adj_orig.eliminate_zeros()
@@ -319,21 +345,31 @@ def test_one_graph(adj , adj_orig, features_csr, num_node ,model,placeholders, s
     adj_label_sparse = adj_label
     adj_label = sparse_to_tuple(adj_label)
     adj_clean = adj_orig.tocsr()
-
-    adj_norm, adj_norm_sparse = preprocess_graph(adj_new)
-    feed_dict.update({placeholders["adj"]: adj_norm})
-    feed_dict.update({placeholders["adj_orig"]: adj_label})
-    feed_dict.update({placeholders["features"]: features})
-    feed_dict.update({placeholders['dropout']: FLAGS.dropout})
-    model.k = int(adj_new.sum() * noise_ratio / 2)
-    # feed_dict = construct_feed_dict(adj_norm, adj_label, features, clean_mask, noised_mask, noised_num, placeholders)
-    x_tilde = sess.run(model.realD_tilde, feed_dict=feed_dict, options=run_options)
-    noised_indexes, clean_indexes = get_noised_indexes(x_tilde, adj_new, num_node)
-    feed_dict.update({placeholders["noised_mask"]: noised_indexes})
-    feed_dict.update({placeholders["clean_mask"]: clean_indexes})
-    feed_dict.update({placeholders["noised_num"]: len(noised_indexes) / 2})
-    new_adj = get_new_adj(feed_dict, sess, model)
+    if k_num !=0:
+        adj_norm, adj_norm_sparse = preprocess_graph(adj_new)
+        feed_dict.update({placeholders["adj"]: adj_norm})
+        feed_dict.update({placeholders["adj_orig"]: adj_label})
+        feed_dict.update({placeholders["features"]: features})
+        feed_dict.update({placeholders['dropout']: FLAGS.dropout})
+        model.k = k_num
+        # feed_dict = construct_feed_dict(adj_norm, adj_label, features, clean_mask, noised_mask, noised_num, placeholders)
+        x_tilde = sess.run(model.realD_tilde, feed_dict=feed_dict, options=run_options)
+        noised_indexes, clean_indexes = get_noised_indexes(x_tilde, adj_new, num_node)
+        feed_dict.update({placeholders["noised_mask"]: noised_indexes})
+        feed_dict.update({placeholders["clean_mask"]: clean_indexes})
+        feed_dict.update({placeholders["noised_num"]: len(noised_indexes) / 2})
+        test1 = model.test_new_indexes.eval(session=sess, feed_dict=feed_dict)
+        test0 = model.test_noised_index.eval(session=sess, feed_dict=feed_dict)
+        print("########")
+        print(test0)
+        print(test1)
+        print(k_num)
+        print(len(noised_indexes))
+        new_adj = get_new_adj(feed_dict, sess, model,noised_indexes, adj_new, k_num, num_node)
+    else:
+        new_adj = adj_clean
     new_adj_sparse = sp.csr_matrix(new_adj)
+
     psnr = PSNR(adj_clean[:num_node, :num_node], new_adj_sparse[:num_node, :num_node])
     y_label = y_train + y_val + y_test
     wls = WL_no_label(adj_clean[:num_node, :num_node], new_adj_sparse[:num_node, :num_node])

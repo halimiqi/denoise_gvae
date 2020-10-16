@@ -105,17 +105,19 @@ def add_noises_on_adjs(adj_list, num_nodes, noise_ratio = 0.1, ):
     noised_adj_list = []
     # add_idx_list = []
     adj_orig_list = []
+    k_list = []
     for i in range(len(adj_list)):
         adj_orig = adj_list[i]
         adj_orig = adj_orig - sp.dia_matrix((adj_orig.diagonal()[np.newaxis, :], [0]),
                                             shape=adj_orig.shape)  # delete self loop
         adj_orig.eliminate_zeros()
         # adj_new, add_idxes = add_edges_between_labels(adj_orig, int(noise_ratio* num_nodes[i]), y_train)
-        adj_new = randomly_add_edges(adj_orig, int(noise_ratio* adj_orig.sum() / 2), num_nodes[i])
+        adj_new,k_real = randomly_add_edges(adj_orig, int(noise_ratio* adj_orig[:num_nodes[i], :num_nodes[i]].sum() / 2), num_nodes[i])
+        k_list.append(k_real)
         noised_adj_list.append(adj_new)
         # add_idx_list.append(add_idxes)
         adj_orig_list.append(adj_orig)
-    return noised_adj_list, adj_orig_list
+    return noised_adj_list, adj_orig_list, k_list
 
 def get_new_feature(feed_dict, sess,flip_features_csr, feature_entry, model):
     new_indexes = model.flip_feature_indexes.eval(session = sess, feed_dict = feed_dict)
@@ -127,8 +129,8 @@ def get_new_feature(feed_dict, sess,flip_features_csr, feature_entry, model):
 # Train model
 
 def save_noise_mat():
-    train_adj_list, train_adj_orig_list = add_noises_on_adjs(train_structure_input, train_num_nodes_all)
-    test_adj_list, test_adj_orig_list = add_noises_on_adjs(test_structure_input, test_num_nodes_all)
+    train_adj_list, train_adj_orig_list , train_k_list= add_noises_on_adjs(train_structure_input, train_num_nodes_all)
+    test_adj_list, test_adj_orig_list , test_k_list = add_noises_on_adjs(test_structure_input, test_num_nodes_all)
     save_path = "./data/NE/"
     for i in range(len(test_adj_list)):
         file_name = dataset_index + "_" +str(i) +".mat"
@@ -139,8 +141,8 @@ def save_noise_mat():
 
 def train():
     ## add noise label
-    train_adj_list, train_adj_orig_list = add_noises_on_adjs(train_structure_input, train_num_nodes_all)
-    test_adj_list, test_adj_orig_list = add_noises_on_adjs(test_structure_input, test_num_nodes_all)
+    train_adj_list, train_adj_orig_list, train_k_list = add_noises_on_adjs(train_structure_input, train_num_nodes_all)
+    test_adj_list, test_adj_orig_list, test_k_list = add_noises_on_adjs(test_structure_input, test_num_nodes_all)
 
     adj = train_adj_list[0]
     features_csr = train_feature_input[0]
@@ -157,7 +159,7 @@ def train():
     load_path = "./data/NE_denoise"
     for i in range(len(test_feature_input)):
         load_file = os.path.join(load_path,  dataset_index + "_" +str(i) +".mat")
-        psnr, wls = test_one_graph_NE(test_adj_list[i], test_adj_orig_list[i],test_feature_input[i],train_num_nodes_all[i], load_file)
+        psnr, wls = test_one_graph_NE(test_adj_list[i], test_adj_orig_list[i],test_feature_input[i],test_num_nodes_all[i], load_file)
         psnr_list.append(psnr)
         wls_list.append(wls)
     # new_adj = get_new_adj(feed_dict,sess, model)
