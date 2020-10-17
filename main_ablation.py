@@ -12,6 +12,7 @@ import numpy as np
 import scipy.sparse as sp
 import time
 import os
+import pickle
 seed = 152   
 np.random.seed(seed)
 tf.set_random_seed(seed)
@@ -229,6 +230,9 @@ def train():
     print(np.mean(psnr_list))
     print("The WL is :")
     print(np.mean(wls_list))
+    with open("test1.pkl", 'wb') as f:
+    pickle.dump(psnr_list, f, protocol=2)
+    pickle.dump(wls_list, f, protocol=2)    
     return np.mean(psnr_list),np.mean(wls_list)
 
 def train_one_graph(adj,adj_orig, features_csr ,num_node , k_num ,model, opt,placeholders, sess,new_learning_rate,feed_dict, epoch, graph_index):
