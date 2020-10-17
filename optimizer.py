@@ -2,6 +2,7 @@ import tensorflow as tf
 import numpy as np
 flags = tf.app.flags
 FLAGS = flags.FLAGS
+import pdb
 
 
 
@@ -52,9 +53,12 @@ class Optimizer(object):
         clean_mask = clean_indexes_2d
         real_pred = tf.gather_nd(model.x_tilde_output_ori,clean_mask)
         fake_pred = tf.gather_nd(model.x_tilde_output_ori, noised_indexes_2d)
+        # pdb.set_trace()
         loss_real = tf.nn.sigmoid_cross_entropy_with_logits(labels = tf.ones_like(real_pred), logits = real_pred)
         loss_fake = tf.nn.sigmoid_cross_entropy_with_logits(labels = tf.zeros_like(fake_pred), logits = fake_pred)
-        G_comm_loss = tf.reduce_mean(loss_real) +tf.reduce_mean(loss_fake)
+        mean_loss_fake = tf.reduce_mean(loss_fake)
+        mean_loss_fake = tf.where(tf.is_nan(mean_loss_fake), 0., mean_loss_fake)
+        G_comm_loss = tf.reduce_mean(loss_real) + mean_loss_fake
         ############### the feature loss part
         # indices = clean_indexes_2d
         # indices = tf.cast(indices, tf.int64)
