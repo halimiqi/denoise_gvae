@@ -19,6 +19,18 @@ def preprocess_graph(adj):
     adj_normalized = adj_.dot(degree_mat_inv_sqrt).transpose().dot(degree_mat_inv_sqrt).tocoo()
     return sparse_to_tuple(adj_normalized), adj_normalized
 
+def preprocess_graph_e(adj):
+    adj = sp.coo_matrix(adj)
+    adj_ = adj
+    #adj_ = adj + sp.eye(adj.shape[0])
+    rowsum = np.array(adj_.sum(1))
+    degree_mat_inv_sqrt = sp.diags(np.power(rowsum, -0.5).flatten())
+    adj_normalized = adj_.dot(degree_mat_inv_sqrt).transpose().dot(degree_mat_inv_sqrt).tocoo()
+    sym_l = sp.eye(adj_normalized.shape[0]) - adj_normalized
+    true_a = adj_normalized + 0.5 * sym_l.dot(sym_l) - 1/6 * sym_l.dot(sym_l).dot(sym_l)
+    return sparse_to_tuple(true_a), true_a
+
+
 def construct_feed_dict(adj_normalized, adj, features,clean_mask, noised_mask,noised_num,  placeholders):
     # construct feed dictionary
     feed_dict = dict()
