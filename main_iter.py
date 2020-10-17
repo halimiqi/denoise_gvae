@@ -308,11 +308,11 @@ def train_one_graph(adj,adj_orig, features_csr ,num_node, k_num ,model, opt,plac
     # last_reg = current_reg
     if epoch > int(FLAGS.epochs / 2):  ## here we can contorl the manner of new model
     # if epoch >0:  ## here we can contorl the manner of new model
-    #     x_tilde = sess.run(model.realD_tilde, feed_dict=feed_dict, options=run_options)
-    #     noised_indexes, clean_indexes = get_noised_indexes(x_tilde, adj_new, num_node)
-    #     feed_dict.update({placeholders["noised_mask"]: noised_indexes})
-    #     feed_dict.update({placeholders["clean_mask"]: clean_indexes})
-    #     feed_dict.update({placeholders["noised_num"]: len(noised_indexes) / 2})
+        x_tilde = sess.run(model.realD_tilde, feed_dict=feed_dict, options=run_options)
+        noised_indexes, clean_indexes = get_noised_indexes(x_tilde, adj_new, num_node)
+        feed_dict.update({placeholders["noised_mask"]: noised_indexes})
+        feed_dict.update({placeholders["clean_mask"]: clean_indexes})
+        feed_dict.update({placeholders["noised_num"]: len(noised_indexes) / 2})
         _= sess.run([opt.G_min_op], feed_dict=feed_dict,options=run_options)
 
     else:
